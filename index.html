@@ -19,7 +19,362 @@
 </head>
 <body>
 
-<!-- [Content truncated for brevity, already included in previous step] -->
+<!-- Live Clock -->
+<div style="text-align:right; padding: 10px; font-weight: bold;">
+  🕒 Time: <span id="liveClock"></span>
+</div>
+
+<div class="login-box" id="loginSection">
+  <h2>🔐 Login - SHREE ADINATH SUGAR FACTORY</h2>
+  <input type="text" id="loginUser" class="input" placeholder="Username">
+  <input type="password" id="loginPass" class="input" placeholder="Password">
+  <label class="checkbox-label">
+    <input type="checkbox" onclick="togglePassword()"> Show Password
+  </label>
+  <button onclick="login()" class="btn">Login</button>
+  <div id="loginMessage" class="message"></div>
+</div>
+
+<div id="mainApp" style="display:none;">
+  <button onclick="logout()" class="btn" style="float:right;">🔁 Switch Login</button>
+  <button onclick="toggleSettings()" class="btn" style="float:left;">⚙️ Settings</button>
+  <div style="clear:both;"></div>
+
+  <h2>Welcome to SHREE ADINATH SUGAR FACTORY</h2>
+  <div>🚜 Tractors Currently Parked: <span id="count">0</span></div>
+
+  <!-- ⚙️ Settings Panel -->
+  <div id="settingsPanel" style="display:none; margin-top: 10px; padding: 15px; border: 1px solid #ccc; border-radius: 8px; background: #f0f8ff;">
+    <h3>⚙️ System Settings</h3>
+    <label>💰 Sugarcane Rate (₹/ton):</label>
+    <input type="number" id="sugarcaneRate" class="input" placeholder="Rate per ton">
+
+    <label>⛽ Diesel Cost (₹/liter):</label>
+    <input type="number" id="dieselRate" class="input" placeholder="Rate per liter">
+
+    <button class="btn" onclick="saveSettings()">💾 Save Settings</button>
+    <button class="btn" onclick="resetData()">♻️ Reset All Data</button>
+    <button class="btn" onclick="showCurrentSettings()">📄 Show Current Settings</button>
+
+    <div id="settingsMessage" class="message"></div>
+  </div>
+
+  <div id="controlPanel">
+    <input type="text" id="tractorNumber" class="input" placeholder="Tractor Number">
+    <input type="number" id="tractorLocation" class="input" placeholder="Parking Slot (1-50)">
+    <button onclick="tractorIn()" class="btn">Tractor In</button>
+    <button onclick="tractorOut()" class="btn">Tractor Out</button>
+    <div id="message" class="message"></div>
+  </div>
+
+  <div id="registrationForm" style="display:none;">
+    <h3>📋 Register New Tractor</h3>
+    <input type="text" id="ownerName" class="input" placeholder="Owner Name">
+    <input type="text" id="regTractorNumber" class="input" placeholder="Tractor Number">
+    <input type="number" id="tractorWeight" class="input" placeholder="Weight (kg)">
+    <input type="text" id="tractorModel" class="input" placeholder="Model">
+    <button onclick="registerTractor()" class="btn">Register</button>
+    <div id="registrationMessage" class="message"></div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div id="controlPanelTransport" style="display:none;">
+    <h3>🚚 Transport Section</h3>
+    <select id="transportTractor" class="input"></select>
+    <input type="text" id="farmerName" class="input" placeholder="Farmer Name">
+    <input type="number" id="sugarcaneWeight" class="input" placeholder="Sugarcane Weight (tons)">
+    <input type="number" id="distanceTravelled" class="input" placeholder="Distance Travelled (km)">
+    <input type="number" id="dieselGiven" class="input" placeholder="Diesel Given (liters)">
+    <button onclick="generateTransportBill()" class="btn">Generate Transport Owner Bill</button>
+    <button onclick="generateFarmerBill()" class="btn">Generate Farmer Bill</button>
+    <div id="transportMessage" class="message"></div>
+    <div id="farmerBillMessage" class="message"></div>
+  </div>
+</div>
+
+<script>
+  let currentRole = "";
+  let tractorRegistry = JSON.parse(localStorage.getItem("tractorRegistry")) || [];
+  let billBook = JSON.parse(localStorage.getItem("billBook")) || [];
+  let parkedTractors = JSON.parse(localStorage.getItem("parkedTractors")) || {};
+  let transportHistory = JSON.parse(localStorage.getItem("transportHistory")) || [];
+
+  let config = JSON.parse(localStorage.getItem("billingConfig")) || {
+    sugarcaneRate: 3500,
+    dieselRate: 100
+  };
+
+  function updateClock() {
+    const now = new Date();
+    document.getElementById("liveClock").textContent = now.toLocaleTimeString();
+  }
+  setInterval(updateClock, 1000);
+  updateClock();
+
+  function togglePassword() {
+    const passField = document.getElementById("loginPass");
+    passField.type = passField.type === "password" ? "text" : "password";
+  }
+
+  function login() {
+    const user = document.getElementById("loginUser").value.toUpperCase();
+    const pass = document.getElementById("loginPass").value;
+
+    if (user === "G" && pass === "0012") currentRole = "gateman";
+    else if (user === "C" && pass === "0012") currentRole = "chairman";
+    else if (user === "T" && pass === "0012") currentRole = "transport";
+    else {
+      document.getElementById("loginMessage").textContent = "❌ Invalid Credentials";
+      return;
+    }
+
+    document.getElementById("loginSection").style.display = "none";
+    document.getElementById("mainApp").style.display = "block";
+
+    if (currentRole === "chairman") {
+      document.getElementById("controlPanel").style.display = "none";
+      document.getElementById("registrationForm").style.display = "block";
+    }
+
+    if (currentRole === "transport") {
+      document.getElementById("controlPanel").style.display = "none";
+      document.getElementById("controlPanelTransport").style.display = "block";
+      populateTransportDropdown();
+    }
+
+    updateParkedCount();
+    renderGrid();
+  }
+
+  function logout() {
+    localStorage.setItem("parkedTractors", JSON.stringify(parkedTractors));
+    location.reload();
+  }
+
+  function registerTractor() {
+    const owner = document.getElementById("ownerName").value.trim();
+    const number = document.getElementById("regTractorNumber").value.trim().toUpperCase();
+    const weight = document.getElementById("tractorWeight").value;
+    const model = document.getElementById("tractorModel").value.trim();
+    if (!owner || !number || !weight || !model) {
+      document.getElementById("registrationMessage").textContent = "❌ Please fill all fields.";
+      return;
+    }
+    if (tractorRegistry.some(t => t.number.toUpperCase() === number)) {
+      document.getElementById("registrationMessage").textContent = "❌ Already Registered.";
+      return;
+    }
+    const id = tractorRegistry.length + 1;
+    tractorRegistry.push({ id, owner, number, weight, model });
+    localStorage.setItem("tractorRegistry", JSON.stringify(tractorRegistry));
+    document.getElementById("registrationMessage").textContent = `✅ Registered (ID: ${id})`;
+  }
+
+  function tractorIn() {
+    const number = document.getElementById("tractorNumber").value.trim().toUpperCase();
+    const location = parseInt(document.getElementById("tractorLocation").value);
+
+    if (!number || !location || location < 1 || location > 50) {
+      document.getElementById("message").textContent = "❌ Please enter valid tractor number and slot (1-50).";
+      return;
+    }
+
+    if (Object.keys(parkedTractors).length >= 1) {
+      document.getElementById("message").textContent = "❌ Only one tractor can be parked at one time. Please wait.";
+      return;
+    }
+
+    const isRegistered = tractorRegistry.some(t => t.number.toUpperCase() === number);
+    if (!isRegistered) {
+      document.getElementById("message").textContent = "❌ Tractor not registered. Please register first.";
+      return;
+    }
+
+    const slotOccupied = Object.values(parkedTractors).some(p => p.location === location);
+    if (slotOccupied) {
+      document.getElementById("message").textContent = `❌ Parking slot ${location} is already occupied.`;
+      return;
+    }
+
+    const timeIn = new Date();
+    parkedTractors[number] = { location, timeIn };
+    updateParkedCount();
+    renderGrid();
+    document.getElementById("message").textContent = `✅ Tractor ${number} parked at slot ${location}.`;
+    localStorage.setItem("parkedTractors", JSON.stringify(parkedTractors));
+
+    setTimeout(() => {
+      autoExitTractor(number);
+    }, 1800000);
+  }
+
+  function autoExitTractor(number) {
+    if (parkedTractors[number]) {
+      delete parkedTractors[number];
+      updateParkedCount();
+      renderGrid();
+      localStorage.setItem("parkedTractors", JSON.stringify(parkedTractors));
+      document.getElementById("message").textContent = `ℹ️ Tractor ${number} auto-exited after 30 minutes.`;
+    }
+  }
+
+  function tractorOut() {
+    const number = document.getElementById("tractorNumber").value.trim().toUpperCase();
+    if (parkedTractors[number]) {
+      delete parkedTractors[number];
+      updateParkedCount();
+      renderGrid();
+      localStorage.setItem("parkedTractors", JSON.stringify(parkedTractors));
+      document.getElementById("message").textContent = `✅ Tractor ${number} exited successfully.`;
+    } else {
+      document.getElementById("message").textContent = "❌ Tractor not found in parking.";
+    }
+  }
+
+  function updateParkedCount() {
+    document.getElementById("count").textContent = Object.keys(parkedTractors).length;
+  }
+
+  function renderGrid() {
+    const grid = document.getElementById("grid");
+    grid.innerHTML = "";
+    for (let i = 1; i <= 50; i++) {
+      const box = document.createElement("div");
+      box.className = "box";
+      const parked = Object.entries(parkedTractors).find(([_, val]) => val.location === i);
+      if (parked) {
+        box.classList.add("occupied");
+        box.innerHTML = `<strong>Slot ${i}</strong><br>Tractor: ${parked[0]}`;
+      } else {
+        box.innerHTML = `<strong>Slot ${i}</strong><br>Empty`;
+      }
+      grid.appendChild(box);
+    }
+  }
+
+  function populateTransportDropdown() {
+    const dropdown = document.getElementById("transportTractor");
+    dropdown.innerHTML = "";
+    tractorRegistry.forEach(t => {
+      dropdown.innerHTML += `<option value="${t.id}">${t.number} - ${t.owner}</option>`;
+    });
+  }
+
+  function generateTransportBill() {
+    const id = parseInt(document.getElementById("transportTractor").value);
+    const farmer = document.getElementById("farmerName").value;
+    const sugarcane = parseFloat(document.getElementById("sugarcaneWeight").value);
+    const distance = parseFloat(document.getElementById("distanceTravelled").value);
+    const diesel = parseFloat(document.getElementById("dieselGiven").value);
+    const t = tractorRegistry.find(t => t.id === id);
+
+    if (!t || isNaN(sugarcane) || isNaN(distance) || isNaN(diesel)) {
+      document.getElementById("transportMessage").textContent = "❌ Enter valid transport data.";
+      return;
+    }
+
+    const ownerPayment = distance * 100;
+    const dieselCost = diesel * config.dieselRate;
+    const profit = ownerPayment - dieselCost;
+
+    const record = {
+      id,
+      owner: t.owner,
+      tractorNumber: t.number,
+      weight: t.weight,
+      sugarcane,
+      distance,
+      diesel,
+      ownerPayment,
+      dieselCost,
+      profit,
+      date: new Date().toLocaleString()
+    };
+    transportHistory.push(record);
+    localStorage.setItem("transportHistory", JSON.stringify(transportHistory));
+
+    const totalTons = transportHistory
+      .filter(r => r.owner === t.owner)
+      .reduce((sum, r) => sum + r.sugarcane, 0);
+
+    const bill =
+`🚛 BILL OF TRANSPORT OWNER
+
+Date             : ${record.date}
+Owner Name       : ${t.owner}
+Tractor Number   : ${t.number}
+Tractor Weight   : ${t.weight} kg
+
+🚜 Sugarcane Load : ${sugarcane} tons
+🌾 Total Transported: ${totalTons.toFixed(2)} tons
+
+📏 Distance Travel: ${distance} km
+⛽ Diesel Given   : ${diesel} L
+
+💰 Owner Payment  : ₹${ownerPayment}
+⛽ Diesel Cost    : ₹${dieselCost}
+✅ Final Profit   : ₹${profit}`;
+
+    alert(bill);
+    document.getElementById("transportMessage").textContent = "✅ Owner bill generated.";
+  }
+
+  function generateFarmerBill() {
+    const farmer = document.getElementById("farmerName").value.trim();
+    const weight = parseFloat(document.getElementById("sugarcaneWeight").value);
+    if (!farmer || isNaN(weight)) {
+      document.getElementById("farmerBillMessage").textContent = "❌ Enter valid farmer info.";
+      return;
+    }
+    const amount = weight * config.sugarcaneRate;
+    const bill =
+`👨‍🌾 FARMER BILL
+Farmer: ${farmer}
+Weight: ${weight} tons
+Amount: ₹${amount}
+Payment: Cash`;
+    alert(bill);
+    document.getElementById("farmerBillMessage").textContent = "✅ Farmer bill generated.";
+  }
+
+  function toggleSettings() {
+    const panel = document.getElementById("settingsPanel");
+    panel.style.display = panel.style.display === "none" ? "block" : "none";
+    document.getElementById("sugarcaneRate").value = config.sugarcaneRate;
+    document.getElementById("dieselRate").value = config.dieselRate;
+  }
+
+  function saveSettings() {
+    const sugarRate = parseFloat(document.getElementById("sugarcaneRate").value);
+    const dieselRate = parseFloat(document.getElementById("dieselRate").value);
+
+    if (isNaN(sugarRate) || isNaN(dieselRate)) {
+      document.getElementById("settingsMessage").textContent = "❌ Enter valid numeric values.";
+      return;
+    }
+
+    config.sugarcaneRate = sugarRate;
+    config.dieselRate = dieselRate;
+    localStorage.setItem("billingConfig", JSON.stringify(config));
+    document.getElementById("settingsMessage").textContent = "✅ Settings saved successfully.";
+  }
+
+  function resetData() {
+    if (confirm("⚠️ Are you sure you want to reset all data? This cannot be undone.")) {
+      localStorage.removeItem("tractorRegistry");
+      localStorage.removeItem("parkedTractors");
+      localStorage.removeItem("transportHistory");
+      localStorage.removeItem("billingConfig");
+      alert("✅ All data has been reset. Please reload the page.");
+      location.reload();
+    }
+  }
+
+  function showCurrentSettings() {
+    alert(`📌 Current Settings:\n\nSugarcane Rate: ₹${config.sugarcaneRate} / ton\nDiesel Rate: ₹${config.dieselRate} / liter`);
+  }
+</script>
 
 </body>
 </html>
